@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { Plus, Edit, Trash, Package, ShoppingBag, Users, Layout as LayoutIcon, Sparkles, Settings, X, Image as ImageIcon, Menu, Ruler, Copy, Megaphone, Loader2, History, Star, Play, Zap, Download } from 'lucide-react';
+import { Plus, Edit, Trash, Package, ShoppingBag, Users, Layout as LayoutIcon, Sparkles, Settings, X, Image as ImageIcon, Menu, Ruler, Copy, Megaphone, Loader2, History, Star, Play, Zap, Download, Contact } from 'lucide-react';
 import { formatPrice } from '../lib/utils';
 import MediaManager from '../components/MediaManager';
 import SiteEditor from '../components/SiteEditor';
@@ -16,6 +16,8 @@ import SEO from '../components/SEO';
 import { useAuth } from '../context/AuthContext';
 import { syncProductToKlaviyo } from '../lib/klaviyo';
 import { askAI } from '../lib/ai';
+import { useSalesChannels } from '../lib/salesChannels';
+import CustomersPanel from '../components/admin/CustomersPanel';
 import { logger } from '../lib/logger';
 
 const AdminPage = () => {
@@ -72,6 +74,8 @@ const AdminPage = () => {
     affiliate_id: '',
     items: [] as any[]
   });
+  const [matchedCustomer, setMatchedCustomer] = useState<any>(null);
+  const { activeChannels, labelOf: labelOfChannel } = useSalesChannels();
   const [manualOrderItem, setManualOrderItem] = useState({
     product_id: '',
     quantity: 1,
@@ -581,6 +585,37 @@ const AdminPage = () => {
     }
   };
   
+  // Prefills the manual sale from the unified customer record (and her last shipping address)
+  const lookupCustomerByPhone = async (rawPhone: string) => {
+    const digits = rawPhone.replace(/\D/g, '').replace(/^(593|0)/, '');
+    if (digits.length < 8) { setMatchedCustomer(null); return; }
+
+    const { data: customer } = await supabase
+      .from('customer_summary')
+      .select('*')
+      .ilike('phone', `%${digits}`)
+      .limit(1)
+      .maybeSingle();
+    setMatchedCustomer(customer || null);
+    if (!customer) return;
+
+    const { data: lastOrder } = await supabase
+      .from('orders')
+      .select('address')
+      .eq('customer_id', customer.id)
+      .not('address', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    setManualOrderFormData(prev => ({
+      ...prev,
+      customer_name: prev.customer_name || customer.full_name || '',
+      customer_email: prev.customer_email || customer.email || '',
+      address: prev.address || lastOrder?.address || ''
+    }));
+  };
+
   const handleCreateManualOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -589,18 +624,27 @@ const AdminPage = () => {
         return;
       }
 
-      const orderData = {
+      const orderData: any = {
         ...manualOrderFormData,
+        affiliate_id: manualOrderFormData.affiliate_id || null,
         total: parseFloat(manualOrderFormData.total),
+        created_by: profile?.id || null,
+        customer_id: matchedCustomer?.id || null,
         created_at: new Date().toISOString()
       };
 
-      const { data, error } = await supabase.from('orders').insert([orderData]).select();
+      let { data, error } = await supabase.from('orders').insert([orderData]).select();
+      // Before the CRM migration these columns don't exist yet: save the sale anyway
+      if (error && /created_by|customer_id/.test(error.message || '')) {
+        const { created_by, customer_id, ...legacy } = orderData;
+        ({ data, error } = await supabase.from('orders').insert([legacy]).select());
+      }
       if (error) throw error;
 
       if (data) {
         setOrders([data[0], ...orders]);
         setIsManualOrderModalOpen(false);
+        setMatchedCustomer(null);
         setManualOrderFormData({
           customer_name: '',
           customer_email: '',
@@ -611,6 +655,7 @@ const AdminPage = () => {
           payment_method: 'whatsapp',
           origin: 'whatsapp',
           notes: '',
+          affiliate_id: '',
           items: [] as any[]
         });
         alert('Pedido manual creado correctamente.');
@@ -814,6 +859,15 @@ const AdminPage = () => {
               className={`w-full flex items-center px-4 py-3 text-sm rounded-lg transition-colors ${activeTab === 'orders' ? 'bg-emerald-50 text-vandora-emerald font-medium' : 'text-gray-600 hover:bg-gray-50'}`}
             >
               <ShoppingBag className="h-5 w-5 mr-3" /> Pedidos
+            </button>
+          )}
+
+          {canManageOrders && (
+            <button
+              onClick={() => { setActiveTab('customers'); setIsSidebarOpen(false); }}
+              className={`w-full flex items-center px-4 py-3 text-sm rounded-lg transition-colors ${activeTab === 'customers' ? 'bg-emerald-50 text-vandora-emerald font-medium' : 'text-gray-600 hover:bg-gray-50'}`}
+            >
+              <Contact className="h-5 w-5 mr-3" /> Clientes
             </button>
           )}
 
@@ -1103,6 +1157,7 @@ const AdminPage = () => {
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Orden</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Canal</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Acciones</th>
@@ -1111,7 +1166,7 @@ const AdminPage = () => {
                 <tbody className="divide-y divide-gray-200 bg-white">
                   {orders.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-6 py-12 text-center text-gray-500 italic">
+                      <td colSpan={6} className="px-6 py-12 text-center text-gray-500 italic">
                         No se encontraron pedidos.
                       </td>
                     </tr>
@@ -1120,6 +1175,7 @@ const AdminPage = () => {
                       <tr key={order.id} className="hover:bg-gray-50 transition-colors">
                         <td className="px-6 py-4 text-sm font-medium text-gray-900">#{order.id.substring(0, 8)}</td>
                         <td className="px-6 py-4 text-sm text-gray-500">{order.customer_name}</td>
+                        <td className="px-6 py-4 text-sm text-gray-500">{labelOfChannel(order.origin || 'web')}</td>
                         <td className="px-6 py-4 text-sm text-gray-500">{formatPrice(order.total)}</td>
                         <td className="px-6 py-4 text-sm text-gray-500">
                           <span className={`px-3 py-1 text-xs font-semibold rounded-full ${order.status === 'completed' ? 'bg-green-100 text-green-800' :
@@ -1145,6 +1201,8 @@ const AdminPage = () => {
             </div>
           </div>
         )}
+
+        {activeTab === 'customers' && canManageOrders && <CustomersPanel />}
 
         {activeTab === 'users' && canManageUsers && (
           <div>
@@ -2022,32 +2080,38 @@ const AdminPage = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-4">
                     <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider">Cliente</h3>
-                    <input 
-                      type="text" 
-                      placeholder="Nombre Completo" 
-                      required 
+                    <input
+                      type="tel"
+                      placeholder="Teléfono (busca a la clienta)"
+                      required
+                      className="w-full rounded-md border p-3 outline-none focus:ring-2 focus:ring-vandora-emerald"
+                      value={manualOrderFormData.customer_phone}
+                      onChange={(e) => setManualOrderFormData({...manualOrderFormData, customer_phone: e.target.value})}
+                      onBlur={(e) => lookupCustomerByPhone(e.target.value)}
+                    />
+                    {matchedCustomer && (
+                      <p className="text-xs text-vandora-emerald bg-emerald-50 rounded-md px-3 py-2">
+                        Cliente existente: {matchedCustomer.full_name || 'sin nombre'} · {matchedCustomer.orders_count} pedidos · llegó por {labelOfChannel(matchedCustomer.first_channel)}
+                      </p>
+                    )}
+                    <input
+                      type="text"
+                      placeholder="Nombre Completo"
+                      required
                       className="w-full rounded-md border p-3 outline-none focus:ring-2 focus:ring-vandora-emerald"
                       value={manualOrderFormData.customer_name}
                       onChange={(e) => setManualOrderFormData({...manualOrderFormData, customer_name: e.target.value})}
                     />
-                    <input 
-                      type="email" 
-                      placeholder="Email (Opcional)" 
+                    <input
+                      type="email"
+                      placeholder="Email (Opcional)"
                       className="w-full rounded-md border p-3 outline-none focus:ring-2 focus:ring-vandora-emerald"
                       value={manualOrderFormData.customer_email}
                       onChange={(e) => setManualOrderFormData({...manualOrderFormData, customer_email: e.target.value})}
                     />
-                    <input 
-                      type="tel" 
-                      placeholder="Teléfono" 
-                      required 
-                      className="w-full rounded-md border p-3 outline-none focus:ring-2 focus:ring-vandora-emerald"
-                      value={manualOrderFormData.customer_phone}
-                      onChange={(e) => setManualOrderFormData({...manualOrderFormData, customer_phone: e.target.value})}
-                    />
-                    <textarea 
-                      placeholder="Dirección de Envío" 
-                      required 
+                    <textarea
+                      placeholder={['tienda_fisica', 'calle'].includes(manualOrderFormData.origin) ? 'Dirección (opcional en venta presencial)' : 'Dirección de Envío'}
+                      required={!['tienda_fisica', 'calle'].includes(manualOrderFormData.origin)}
                       rows={2}
                       className="w-full rounded-md border p-3 outline-none focus:ring-2 focus:ring-vandora-emerald"
                       value={manualOrderFormData.address}
@@ -2065,12 +2129,9 @@ const AdminPage = () => {
                           value={manualOrderFormData.origin}
                           onChange={(e) => setManualOrderFormData({...manualOrderFormData, origin: e.target.value})}
                         >
-                          <option value="whatsapp">WhatsApp</option>
-                          <option value="instagram">Instagram</option>
-                          <option value="facebook">Facebook</option>
-                          <option value="tienda_fisica">Tienda Física</option>
-                          <option value="calle">Venta en la Calle</option>
-                          <option value="otro">Otro</option>
+                          {activeChannels.filter(c => c.key !== 'web').map(c => (
+                            <option key={c.key} value={c.key}>{c.label}</option>
+                          ))}
                         </select>
                       </div>
                       <div>

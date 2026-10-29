@@ -4,6 +4,9 @@ import { HelmetProvider } from 'react-helmet-async';
 import App from './App.tsx';
 import './index.css';
 import { logger } from './lib/logger';
+import { captureAttribution } from './lib/attribution';
+
+captureAttribution();
 
 // Global Error Handling
 window.onerror = (message, source, lineno, colno, error) => {

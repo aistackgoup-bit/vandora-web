@@ -10,6 +10,7 @@ import { useAuth } from '../context/AuthContext';
 import SEO from '../components/SEO';
 import PhoneInput from '../components/PhoneInput';
 import { useAnalytics } from '../context/AnalyticsContext';
+import { getAttribution } from '../lib/attribution';
 
 interface CheckoutSettings {
   fields: {
@@ -381,18 +382,30 @@ const CheckoutPage = () => {
       notes: '',
       created_at: new Date().toISOString(),
       user_id: user?.id || null,
-      affiliate_id: getAffiliateId()
+      affiliate_id: getAffiliateId(),
+      origin: 'web',
+      attribution: getAttribution()
     };
 
     try {
       console.log('Checkout: Submitting order with user ID:', user?.id);
       console.log('Checkout: Order details:', orderData);
-      
-      const { data: orderResult, error: orderError } = await supabase
+
+      let { data: orderResult, error: orderError } = await supabase
         .from('orders')
         .insert([orderData])
         .select()
         .single();
+
+      // Until the CRM migration adds orders.attribution, never lose a sale over it
+      if (orderError && /attribution/.test(orderError.message || '')) {
+        const { attribution, ...withoutAttribution } = orderData;
+        ({ data: orderResult, error: orderError } = await supabase
+          .from('orders')
+          .insert([withoutAttribution])
+          .select()
+          .single());
+      }
 
       if (orderError) {
         console.error('CRITICAL: Supabase Order Insertion Failed', {
