@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { formatPrice } from '../../lib/utils';
 import { adjustInventory, variantLabel, REASON_LABELS, InventoryReason } from '../../lib/inventory';
-import { Search, Loader2, Plus, ClipboardCheck, ArrowRightLeft, History, X, Package, AlertTriangle, PackageX, Boxes } from 'lucide-react';
+import { Search, Loader2, Plus, ClipboardCheck, ArrowRightLeft, History, X, Package, AlertTriangle, PackageX, Boxes, Sparkles } from 'lucide-react';
 
 type Row = {
   id: string;
@@ -38,7 +38,7 @@ const STATUS_STYLE: Record<string, string> = {
   ok: 'text-gray-900',
 };
 
-const InventoryPanel = () => {
+const InventoryPanel = ({ onGeneratePhotos }: { onGeneratePhotos?: (productId: string) => void }) => {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [missingSetup, setMissingSetup] = useState(false);
@@ -149,7 +149,18 @@ const InventoryPanel = () => {
                   <span className="font-medium text-gray-900">{variants[0].product_name}</span>
                   {variants[0].category && <span className="ml-2 text-xs text-gray-400">{variants[0].category}</span>}
                 </div>
-                <span className="text-sm text-gray-500">{variants.reduce((a, v) => a + Math.max(v.stock, 0), 0)} uds.</span>
+                <div className="flex items-center gap-3">
+                  {onGeneratePhotos && (
+                    <button
+                      type="button"
+                      onClick={() => onGeneratePhotos(variants[0].product_id)}
+                      className="inline-flex items-center gap-1 text-xs text-vandora-emerald hover:underline"
+                    >
+                      <Sparkles className="h-3.5 w-3.5" /> Generar fotos
+                    </button>
+                  )}
+                  <span className="text-sm text-gray-500">{variants.reduce((a, v) => a + Math.max(v.stock, 0), 0)} uds.</span>
+                </div>
               </div>
               <table className="min-w-full text-sm">
                 <thead>

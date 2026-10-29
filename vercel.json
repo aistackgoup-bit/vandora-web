@@ -1,4 +1,8 @@
 {
+    "functions": {
+        "api/kie-image.js": { "maxDuration": 60 },
+        "api/kie-callback.js": { "maxDuration": 60 }
+    },
     "rewrites": [
         {
             "source": "/sitemap.xml",

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { Plus, Edit, Trash, Package, ShoppingBag, Users, Layout as LayoutIcon, Sparkles, Settings, X, Image as ImageIcon, Menu, Ruler, Copy, Megaphone, Loader2, History, Star, Play, Zap, Download, Contact, Boxes } from 'lucide-react';
+import { Plus, Edit, Trash, Package, ShoppingBag, Users, Layout as LayoutIcon, Sparkles, Settings, X, Image as ImageIcon, Menu, Ruler, Copy, Megaphone, Loader2, History, Star, Play, Zap, Download, Contact, Boxes, Wand2 } from 'lucide-react';
 import { formatPrice } from '../lib/utils';
 import MediaManager from '../components/MediaManager';
 import SiteEditor from '../components/SiteEditor';
@@ -19,6 +19,7 @@ import { askAI } from '../lib/ai';
 import { useSalesChannels } from '../lib/salesChannels';
 import CustomersPanel from '../components/admin/CustomersPanel';
 import InventoryPanel from '../components/admin/InventoryPanel';
+import AiStudioPanel from '../components/admin/AiStudioPanel';
 import VariantStockEditor, { StockMatrix, matrixFromVariants, saveVariantStock } from '../components/admin/VariantStockEditor';
 import { Variant, availableFor, useProductVariants } from '../lib/inventory';
 import { logger } from '../lib/logger';
@@ -78,6 +79,7 @@ const AdminPage = () => {
     items: [] as any[]
   });
   const [matchedCustomer, setMatchedCustomer] = useState<any>(null);
+  const [studioProductId, setStudioProductId] = useState<string | null>(null);
   const { activeChannels, labelOf: labelOfChannel } = useSalesChannels();
   const [manualOrderItem, setManualOrderItem] = useState({
     product_id: '',
@@ -910,6 +912,15 @@ const AdminPage = () => {
             </button>
           )}
 
+          {canManageProducts && (
+            <button
+              onClick={() => { setActiveTab('studio'); setIsSidebarOpen(false); }}
+              className={`w-full flex items-center px-4 py-3 text-sm rounded-lg transition-colors ${activeTab === 'studio' ? 'bg-emerald-50 text-vandora-emerald font-medium' : 'text-gray-600 hover:bg-gray-50'}`}
+            >
+              <Wand2 className="h-5 w-5 mr-3" /> Estudio IA
+            </button>
+          )}
+
           {canManageOrders && (
             <button
               onClick={() => { setActiveTab('customers'); setIsSidebarOpen(false); }}
@@ -1252,7 +1263,15 @@ const AdminPage = () => {
 
         {activeTab === 'customers' && canManageOrders && <CustomersPanel />}
 
-        {activeTab === 'inventory' && (canManageProducts || canManageOrders) && <InventoryPanel />}
+        {activeTab === 'inventory' && (canManageProducts || canManageOrders) && (
+          <InventoryPanel
+            onGeneratePhotos={canManageProducts ? (id) => { setStudioProductId(id); setActiveTab('studio'); } : undefined}
+          />
+        )}
+
+        {activeTab === 'studio' && canManageProducts && (
+          <AiStudioPanel products={products} initialProductId={studioProductId} onProductsChanged={fetchProducts} />
+        )}
 
         {activeTab === 'users' && canManageUsers && (
           <div>
