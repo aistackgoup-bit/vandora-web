@@ -12,6 +12,13 @@
   --color-vandora-black: #1a1a1a;
 }
 
+/* Tailwind v4 makes plain `border` / `divide-*` use currentColor; keep the v3 light gray default this UI was designed with */
+@layer base {
+  *, ::after, ::before, ::backdrop, ::file-selector-button {
+    border-color: var(--color-gray-200, currentColor);
+  }
+}
+
 :root {
   --vandora-emerald: #064e3b;
   --vandora-gold: #d4af37;

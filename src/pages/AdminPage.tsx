@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { Plus, Edit, Trash, Package, ShoppingBag, Users, Layout as LayoutIcon, Sparkles, Settings, X, Image as ImageIcon, Menu, Ruler, Copy, Megaphone, Loader2, History, Star, Play, Zap, Download, Contact } from 'lucide-react';
+import { Plus, Edit, Trash, Package, ShoppingBag, Users, Layout as LayoutIcon, Sparkles, Settings, X, Image as ImageIcon, Menu, Ruler, Copy, Megaphone, Loader2, History, Star, Play, Zap, Download, Contact, Boxes } from 'lucide-react';
 import { formatPrice } from '../lib/utils';
 import MediaManager from '../components/MediaManager';
 import SiteEditor from '../components/SiteEditor';
@@ -18,6 +18,9 @@ import { syncProductToKlaviyo } from '../lib/klaviyo';
 import { askAI } from '../lib/ai';
 import { useSalesChannels } from '../lib/salesChannels';
 import CustomersPanel from '../components/admin/CustomersPanel';
+import InventoryPanel from '../components/admin/InventoryPanel';
+import VariantStockEditor, { StockMatrix, matrixFromVariants, saveVariantStock } from '../components/admin/VariantStockEditor';
+import { Variant, availableFor, useProductVariants } from '../lib/inventory';
 import { logger } from '../lib/logger';
 
 const AdminPage = () => {
@@ -82,6 +85,7 @@ const AdminPage = () => {
     size: '',
     color: ''
   });
+  const { variants: manualVariants } = useProductVariants(manualOrderItem.product_id || null);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -388,6 +392,29 @@ const AdminPage = () => {
     setEditingProduct(null);
   };
 
+  // Stock per color/size for the product form. inventoryReady is false until the inventory
+  // migration is applied, in which case the form keeps the old single stock field.
+  const [stockMatrix, setStockMatrix] = useState<StockMatrix>({});
+  const [inventoryReady, setInventoryReady] = useState(false);
+  const [poolStock, setPoolStock] = useState(0);
+
+  useEffect(() => {
+    if (!isModalOpen) return;
+    setStockMatrix({});
+    setPoolStock(0);
+    let query = supabase.from('product_variants').select('*');
+    query = editingProduct ? query.eq('product_id', editingProduct.id) : query.limit(1);
+    query.then(({ data, error }) => {
+      setInventoryReady(!error);
+      if (error || !editingProduct) return;
+      const variants = (data || []) as Variant[];
+      setStockMatrix(matrixFromVariants(variants));
+      const pool = variants.find(v => v.color === '' && v.size === '');
+      const hasAxes = (editingProduct.colors?.length || 0) > 0 || (editingProduct.sizes?.length || 0) > 0;
+      setPoolStock(hasAxes ? Math.max(pool?.stock || 0, 0) : 0);
+    });
+  }, [isModalOpen, editingProduct?.id]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -411,7 +438,10 @@ const AdminPage = () => {
         name: formData.name,
         price: parseFloat(formData.price) || 0,
         category: formData.category,
-        stock: parseInt(formData.stock) || 0,
+        // With per-variant inventory, products.stock is computed by the database from the variants
+        ...(inventoryReady
+          ? (editingProduct ? {} : { stock: 0 })
+          : { stock: parseInt(formData.stock) || 0 }),
         description: formData.description,
         details: formData.details,
         materials: formData.materials,
@@ -444,7 +474,12 @@ const AdminPage = () => {
       if (editingProduct) {
         const { error } = await supabase.from('products').update(productData).eq('id', editingProduct.id);
         if (error) throw error;
-        setProducts(products.map(p => p.id === editingProduct.id ? { ...p, ...productData } : p));
+        if (inventoryReady) {
+          await saveVariantStock(editingProduct.id, stockMatrix, false);
+          fetchProducts();
+        } else {
+          setProducts(products.map(p => p.id === editingProduct.id ? { ...p, ...productData } : p));
+        }
         closeModal();
         
         // Automatic Klaviyo Sync on Update
@@ -463,6 +498,10 @@ const AdminPage = () => {
             colors: Array.isArray(data[0].colors) ? data[0].colors.map((c: any) => typeof c === 'string' ? { name: c, code: '#CCCCCC' } : c) : []
           };
           setProducts([...products, newProduct]);
+          if (inventoryReady) {
+            await saveVariantStock(newProduct.id, stockMatrix, true);
+            fetchProducts();
+          }
           closeModal();
           
           // Automatic Klaviyo Sync on Create
@@ -862,6 +901,15 @@ const AdminPage = () => {
             </button>
           )}
 
+          {(canManageProducts || canManageOrders) && (
+            <button
+              onClick={() => { setActiveTab('inventory'); setIsSidebarOpen(false); }}
+              className={`w-full flex items-center px-4 py-3 text-sm rounded-lg transition-colors ${activeTab === 'inventory' ? 'bg-emerald-50 text-vandora-emerald font-medium' : 'text-gray-600 hover:bg-gray-50'}`}
+            >
+              <Boxes className="h-5 w-5 mr-3" /> Inventario
+            </button>
+          )}
+
           {canManageOrders && (
             <button
               onClick={() => { setActiveTab('customers'); setIsSidebarOpen(false); }}
@@ -1204,6 +1252,8 @@ const AdminPage = () => {
 
         {activeTab === 'customers' && canManageOrders && <CustomersPanel />}
 
+        {activeTab === 'inventory' && (canManageProducts || canManageOrders) && <InventoryPanel />}
+
         {activeTab === 'users' && canManageUsers && (
           <div>
             <div className="flex justify-between items-center mb-4">
@@ -1362,11 +1412,22 @@ const AdminPage = () => {
                         <label className="block text-sm font-medium text-gray-700 mb-1">Precio de Oferta (Opcional)</label>
                         <input type="number" step="0.01" name="sale_price" value={formData.sale_price} onChange={handleInputChange} className="w-full rounded-md border-gray-300 shadow-sm border p-3 focus:ring-2 focus:ring-vandora-emerald outline-none" placeholder="0.00" title="Precio que aparecerá en Google Shopping como oferta" />
                       </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Stock Inicial</label>
-                        <input type="number" name="stock" value={formData.stock} onChange={handleInputChange} required className="w-full rounded-md border-gray-300 shadow-sm border p-3 focus:ring-2 focus:ring-vandora-emerald outline-none" />
-                      </div>
+                      {!inventoryReady && (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Stock Inicial</label>
+                          <input type="number" name="stock" value={formData.stock} onChange={handleInputChange} required className="w-full rounded-md border-gray-300 shadow-sm border p-3 focus:ring-2 focus:ring-vandora-emerald outline-none" />
+                        </div>
+                      )}
                     </div>
+                    {inventoryReady && (
+                      <VariantStockEditor
+                        colors={formData.colors}
+                        sizes={formData.sizes}
+                        matrix={stockMatrix}
+                        onChange={setStockMatrix}
+                        poolStock={poolStock}
+                      />
+                    )}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Categoría</label>
                       <div className="flex gap-2">
@@ -2184,6 +2245,40 @@ const AdminPage = () => {
                         <option key={p.id} value={p.id}>{p.name} - {formatPrice(p.price)}</option>
                       ))}
                     </select>
+                    {(() => {
+                      const prod = products.find(p => p.id === manualOrderItem.product_id);
+                      if (!prod) return null;
+                      const stockLabel = (color: string, size: string) =>
+                        manualVariants ? ` (${availableFor(manualVariants, color, size)})` : '';
+                      return (
+                        <>
+                          {prod.colors?.length > 0 && (
+                            <select
+                              className="rounded-md border p-2 bg-white text-sm"
+                              value={manualOrderItem.color}
+                              onChange={(e) => setManualOrderItem({ ...manualOrderItem, color: e.target.value })}
+                              aria-label="Color"
+                            >
+                              {prod.colors.map((c: any) => (
+                                <option key={c.name} value={c.name}>{c.name}{prod.sizes?.length ? '' : stockLabel(c.name, '')}</option>
+                              ))}
+                            </select>
+                          )}
+                          {prod.sizes?.length > 0 && (
+                            <select
+                              className="rounded-md border p-2 bg-white text-sm"
+                              value={manualOrderItem.size}
+                              onChange={(e) => setManualOrderItem({ ...manualOrderItem, size: e.target.value })}
+                              aria-label="Talla"
+                            >
+                              {prod.sizes.map((s: string) => (
+                                <option key={s} value={s}>{s}{stockLabel(manualOrderItem.color, s)}</option>
+                              ))}
+                            </select>
+                          )}
+                        </>
+                      );
+                    })()}
                     <div className="flex gap-2">
                        <input 
                         type="number" 
@@ -2197,7 +2292,14 @@ const AdminPage = () => {
                         onClick={() => {
                           const prod = products.find(p => p.id === manualOrderItem.product_id);
                           if (!prod) return;
-                          
+                          if (manualVariants) {
+                            const available = availableFor(manualVariants, manualOrderItem.color, manualOrderItem.size);
+                            if (available < manualOrderItem.quantity &&
+                                !confirm(`Solo hay ${available} en stock de esta variante. ¿Registrar la venta de todas formas? El stock quedará en negativo.`)) {
+                              return;
+                            }
+                          }
+
                           const newItem = {
                             id: prod.id,
                             name: prod.name,

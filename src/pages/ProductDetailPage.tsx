@@ -10,6 +10,7 @@ import SEO from '../components/SEO';
 import SizeGuideModal from '../components/SizeGuideModal';
 import { useAnalytics } from '../context/AnalyticsContext';
 import { logger } from '../lib/logger';
+import { availableFor, useProductVariants } from '../lib/inventory';
 
 
 
@@ -31,6 +32,10 @@ const ProductDetailPage = () => {
   const [refundPolicy, setRefundPolicy] = useState<any>(null);
   const [testimonials, setTestimonials] = useState<any[]>([]);
   const { trackStandardEvent } = useAnalytics();
+  // null until loaded, or when per-variant inventory isn't installed (then product.stock is used)
+  const { variants } = useProductVariants(product?.id);
+  const unitsFor = (color: string, size: string) =>
+    variants ? availableFor(variants, color, size) : (product?.stock ?? 0);
 
   // CRO States
   const [viewersCount, setViewersCount] = useState(12);
@@ -210,7 +215,11 @@ const ProductDetailPage = () => {
 
   if (!product) return <div className="min-h-screen flex items-center justify-center">Cargando...</div>;
 
+  const selectedUnits = unitsFor(selectedColor, selectedSize);
+  const soldOut = selectedUnits <= 0;
+
   const handleAddToCart = () => {
+    if (soldOut) return;
     addItem({
       id: product.id,
       name: product.name,
@@ -500,11 +509,13 @@ const ProductDetailPage = () => {
               <p className="text-3xl font-medium text-vandora-emerald mb-4">{formatPrice(product.price)}</p>
 
               {/* Urgency/Scarcity */}
-              {product.stock < 15 && (
+              {selectedUnits > 0 && selectedUnits <= 5 && (
                 <div className="mb-6 bg-orange-50 border border-orange-100 rounded-md p-3 flex items-start">
                   <Clock className="h-5 w-5 text-orange-500 mr-2 flex-shrink-0 mt-0.5" />
                   <div>
-                    <p className="text-sm text-orange-800 font-medium">¡Solo quedan {product.stock} unidades!</p>
+                    <p className="text-sm text-orange-800 font-medium">
+                      ¡Solo {selectedUnits === 1 ? 'queda 1 unidad' : `quedan ${selectedUnits} unidades`}{variants && (selectedColor || selectedSize) ? ' en esta talla y color' : ''}!
+                    </p>
                     <p className="text-xs text-orange-600 mt-1">Ordena en las próximas {timeLeft.hours}h {timeLeft.minutes}m para recibirlo mañana.</p>
                   </div>
                 </div>
@@ -547,18 +558,22 @@ const ProductDetailPage = () => {
                   </button>
                 </div>
                 <div className="flex flex-wrap gap-3">
-                  {product.sizes.map((size: string) => (
-                    <button
-                      key={size}
-                      onClick={() => setSelectedSize(size)}
-                      className={`min-w-[3rem] h-12 px-3 flex items-center justify-center border rounded-md text-sm font-medium transition-all ${selectedSize === size
-                        ? 'border-vandora-emerald text-vandora-emerald bg-white shadow-sm ring-1 ring-vandora-emerald'
-                        : 'border-gray-200 text-gray-600 hover:border-gray-300 bg-white'
-                        }`}
-                    >
-                      {size}
-                    </button>
-                  ))}
+                  {product.sizes.map((size: string) => {
+                    const unavailable = variants !== null && unitsFor(selectedColor, size) <= 0;
+                    return (
+                      <button
+                        key={size}
+                        onClick={() => setSelectedSize(size)}
+                        title={unavailable ? 'Agotada en este color' : undefined}
+                        className={`min-w-[3rem] h-12 px-3 flex items-center justify-center border rounded-md text-sm font-medium transition-all ${selectedSize === size
+                          ? 'border-vandora-emerald text-vandora-emerald bg-white shadow-sm ring-1 ring-vandora-emerald'
+                          : 'border-gray-200 text-gray-600 hover:border-gray-300 bg-white'
+                          } ${unavailable ? 'line-through text-gray-300 bg-gray-50' : ''}`}
+                      >
+                        {size}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -590,10 +605,11 @@ const ProductDetailPage = () => {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <button
                   onClick={handleAddToCart}
-                  className="w-full bg-gradient-to-r from-vandora-emerald to-emerald-800 text-white py-4 px-8 rounded-xl hover:shadow-2xl transition-all font-bold shadow-emerald-200/50 active:scale-[0.98] flex items-center justify-center text-sm uppercase tracking-[0.15em] order-last sm:order-first group"
+                  disabled={soldOut}
+                  className="w-full bg-gradient-to-r from-vandora-emerald to-emerald-800 text-white py-4 px-8 rounded-xl hover:shadow-2xl transition-all font-bold shadow-emerald-200/50 active:scale-[0.98] flex items-center justify-center text-sm uppercase tracking-[0.15em] order-last sm:order-first group disabled:from-gray-300 disabled:to-gray-400 disabled:shadow-none disabled:cursor-not-allowed"
                 >
                   <ShoppingBag className="h-5 w-5 mr-2 group-hover:rotate-12 transition-transform" />
-                  Añadir al Carrito
+                  {soldOut ? 'Agotado' : 'Añadir al Carrito'}
                 </button>
                 <a
                   href={`https://wa.me/593900000000?text=Hola! Estoy interesada en el producto: ${product.name}`}
@@ -746,9 +762,10 @@ const ProductDetailPage = () => {
           </div>
           <button
             onClick={handleAddToCart}
-            className="flex-1 bg-vandora-emerald text-white py-3 rounded-md font-medium shadow-sm active:scale-[0.98] transition-transform"
+            disabled={soldOut}
+            className="flex-1 bg-vandora-emerald text-white py-3 rounded-md font-medium shadow-sm active:scale-[0.98] transition-transform disabled:bg-gray-300"
           >
-            Añadir al Carrito
+            {soldOut ? 'Agotado' : 'Añadir al Carrito'}
           </button>
         </div>
       </div>
