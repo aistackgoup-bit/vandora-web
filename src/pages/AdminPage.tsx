@@ -15,6 +15,7 @@ import AffiliateManagement from '../components/AffiliateManagement';
 import SEO from '../components/SEO';
 import { useAuth } from '../context/AuthContext';
 import { syncProductToKlaviyo } from '../lib/klaviyo';
+import { askAI } from '../lib/ai';
 import { logger } from '../lib/logger';
 
 const AdminPage = () => {
@@ -364,7 +365,7 @@ const AdminPage = () => {
 
   const handleSyncKlaviyo = async (product: any) => {
     setSyncingKlaviyo(product.id);
-    const result = await syncProductToKlaviyo(product, klaviyoPrivateKey);
+    const result = await syncProductToKlaviyo(product);
     if (result.success) {
       alert(`Producto sincronizado con Klaviyo (${result.action === 'created' ? 'Creado' : 'Actualizado'})`);
     } else {
@@ -444,7 +445,7 @@ const AdminPage = () => {
         
         // Automatic Klaviyo Sync on Update
         if (klaviyoPrivateKey) {
-          syncProductToKlaviyo({ ...productData, id: editingProduct.id }, klaviyoPrivateKey);
+          syncProductToKlaviyo({ ...productData, id: editingProduct.id });
         }
       } else {
         const { data, error } = await supabase.from('products').insert([productData]).select();
@@ -462,7 +463,7 @@ const AdminPage = () => {
           
           // Automatic Klaviyo Sync on Create
           if (klaviyoPrivateKey) {
-            syncProductToKlaviyo(newProduct, klaviyoPrivateKey);
+            syncProductToKlaviyo(newProduct);
           }
         }
       }
@@ -684,51 +685,9 @@ const AdminPage = () => {
 
     setImprovingField(field);
     try {
-      const { data: settingsData } = await supabase.from('app_settings').select('*');
-      if (!settingsData) throw new Error('No se pudo cargar la configuración.');
-      
-      const settings: any = {};
-      settingsData.forEach(item => {
-        settings[item.key] = item.value;
-      });
-
-      const apiKey = settings.openai_api_key;
-      if (!apiKey) throw new Error('Configura la API Key en la sección de Ajustes primero.');
-
-      const provider = settings.ai_provider || 'openai';
-      const model = settings.ai_model || 'gpt-4o-mini';
-
       const prompt = `Mejora la estructura y el copy de esta descripción de producto de moda, haciéndola más atractiva y profesional, pero MANTENIENDO toda la información técnica, tallas y detalles importantes. No inventes información nueva. Estructura el texto con párrafos claros o puntos clave.\n\nTexto original:\n${text}`;
 
-      let apiUrl = 'https://api.openai.com/v1/chat/completions';
-      const headers: any = {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      };
-
-      if (provider === 'openrouter') {
-        apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
-        headers['HTTP-Referer'] = window.location.origin;
-        headers['X-Title'] = 'Vandora Admin';
-      }
-
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          model,
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 1,
-        })
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error?.message || 'Error en la comunicación con la IA.');
-      }
-
-      const data = await response.json();
-      const improvedText = data.choices[0]?.message?.content?.trim();
+      const improvedText = await askAI([{ role: 'user', content: prompt }]);
 
       if (improvedText) {
         setFormData(prev => ({ ...prev, [field]: improvedText }));

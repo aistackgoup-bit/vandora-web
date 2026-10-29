@@ -312,6 +312,26 @@ const ProductDetailPage = () => {
     }
   });
 
+  // Only publish ratings backed by real reviews: invented review markup violates
+  // Google's structured-data policies and can get rich results or Merchant listings removed.
+  const averageRating = testimonials.length > 0
+    ? testimonials.reduce((acc: number, t: any) => acc + (t.rating || 5), 0) / testimonials.length
+    : 0;
+  const reviewSchema = testimonials.length > 0 ? {
+    "aggregateRating": {
+      "@type": "AggregateRating",
+      "ratingValue": averageRating.toFixed(1),
+      "reviewCount": testimonials.length
+    },
+    "review": testimonials.slice(0, 5).map((t: any) => ({
+      "@type": "Review",
+      "author": { "@type": "Person", "name": t.user_name || "Cliente Satisfecho" },
+      "reviewBody": t.comment,
+      "datePublished": t.created_at || new Date().toISOString(),
+      "reviewRating": { "@type": "Rating", "ratingValue": t.rating || 5 }
+    }))
+  } : {};
+
   const hasVariants = colors.length > 1 || sizes.length > 1;
   const productSchema: any = hasVariants ? {
     "@context": "https://schema.org/",
@@ -328,53 +348,15 @@ const ProductDetailPage = () => {
     "hasVariant": (colors.length > 0 ? colors : [{ name: undefined }]).flatMap(c => 
       (sizes.length > 0 ? sizes : [undefined]).map(s => createProductSchema(c.name, s))
     ),
-    "aggregateRating": {
-      "@type": "AggregateRating",
-      "ratingValue": testimonials.length > 0 
-        ? (testimonials.reduce((acc: number, t: any) => acc + (t.rating || 5), 0) / testimonials.length).toFixed(1)
-        : "5.0",
-      "reviewCount": testimonials.length > 0 ? testimonials.length : 1
-    },
+    ...reviewSchema,
     "datePublished": product.created_at || new Date().toISOString(),
-    "dateModified": product.updated_at || product.created_at || new Date().toISOString(),
-    "review": testimonials.length > 0 ? testimonials.slice(0, 5).map((t: any) => ({
-      "@type": "Review",
-      "author": { "@type": "Person", "name": t.user_name || "Cliente Satisfecho" },
-      "reviewBody": t.comment,
-      "datePublished": t.created_at || new Date().toISOString(),
-      "reviewRating": { "@type": "Rating", "ratingValue": t.rating || 5 }
-    })) : [{
-      "@type": "Review",
-      "author": { "@type": "Person", "name": "Cliente Vandora" },
-      "reviewBody": "Excelente calidad y diseño.",
-      "datePublished": "2024-01-01T08:00:00+00:00",
-      "reviewRating": { "@type": "Rating", "ratingValue": 5 }
-    }]
+    "dateModified": product.updated_at || product.created_at || new Date().toISOString()
   } : {
     "@context": "https://schema.org/",
     ...createProductSchema(),
-    "aggregateRating": {
-      "@type": "AggregateRating",
-      "ratingValue": testimonials.length > 0 
-        ? (testimonials.reduce((acc: number, t: any) => acc + (t.rating || 5), 0) / testimonials.length).toFixed(1)
-        : "5.0",
-      "reviewCount": testimonials.length > 0 ? testimonials.length : 1
-    },
+    ...reviewSchema,
     "datePublished": product.created_at || new Date().toISOString(),
-    "dateModified": product.updated_at || product.created_at || new Date().toISOString(),
-    "review": testimonials.length > 0 ? testimonials.slice(0, 5).map((t: any) => ({
-      "@type": "Review",
-      "author": { "@type": "Person", "name": t.user_name || "Cliente Satisfecho" },
-      "reviewBody": t.comment,
-      "datePublished": t.created_at || new Date().toISOString(),
-      "reviewRating": { "@type": "Rating", "ratingValue": t.rating || 5 }
-    })) : [{
-      "@type": "Review",
-      "author": { "@type": "Person", "name": "Cliente Vandora" },
-      "reviewBody": "Excelente calidad y diseño.",
-      "datePublished": "2024-01-01T08:00:00+00:00",
-      "reviewRating": { "@type": "Rating", "ratingValue": 5 }
-    }]
+    "dateModified": product.updated_at || product.created_at || new Date().toISOString()
   };
 
   return (
@@ -502,7 +484,7 @@ const ProductDetailPage = () => {
                 <div className="flex items-center">
                   <div className="flex text-yellow-400">
                     {[...Array(5)].map((_, i) => (
-                      <Star key={i} className="h-4 w-4 fill-current" />
+                      <Star key={i} className={`h-4 w-4 ${i < Math.round(averageRating) ? "fill-current" : "text-gray-300"}`} />
                     ))}
                   </div>
                   <span className="ml-2 text-sm text-gray-500 underline cursor-pointer hover:text-vandora-emerald">({testimonials.length} reseñas)</span>
@@ -529,7 +511,7 @@ const ProductDetailPage = () => {
               )}
 
               <div className="prose prose-sm text-gray-600 mb-8">
-                <p>{product.description}</p>
+                <p className="whitespace-pre-line">{product.description}</p>
               </div>
             </div>
 

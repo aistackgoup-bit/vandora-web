@@ -3,6 +3,7 @@ import { MessageCircle, X, Send, Loader2, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import { supabase } from '../lib/supabase';
+import { askAI } from '../lib/ai';
 
 type Message = {
   role: 'user' | 'assistant';
@@ -24,7 +25,11 @@ const ChatWidget = () => {
 
   const fetchConfig = async () => {
     try {
-      const { data } = await supabase.from('app_settings').select('*');
+      // Only public keys: secrets in app_settings are not readable by visitors
+      const { data } = await supabase
+        .from('app_settings')
+        .select('key, value')
+        .in('key', ['ai_agent_enabled', 'ai_welcome_message']);
       if (data) {
         const settings: any = {};
         data.forEach(item => {
@@ -60,52 +65,11 @@ const ChatWidget = () => {
     setLoading(true);
 
     try {
-      const apiKey = config.openai_api_key;
-      if (!apiKey) {
-        throw new Error('El administrador aún no ha configurado la clave de conexión. Por favor usa WhatsApp.');
-      }
-
-      const provider = config.ai_provider || 'openai';
-      const model = config.ai_model || 'gpt-4o-mini';
-      const systemPrompt = config.ai_system_prompt || 'Eres "Vandora AI", la asistente virtual experta en moda de la tienda exclusiva "Vandora" en Ecuador. Tu tono es elegante, empático, profesional y cálido.';
-
-      const apiMessages = [
-        { role: 'system', content: systemPrompt },
-        ...messages,
-        { role: 'user', content: userMessage }
-      ].map(m => ({
-        role: m.role,
-        content: m.content
-      }));
-
-      let apiUrl = 'https://api.openai.com/v1/chat/completions';
-      const headers: any = {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      };
-
-      if (provider === 'openrouter') {
-        apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
-        headers['HTTP-Referer'] = window.location.origin;
-        headers['X-Title'] = 'Vandora Boutique';
-      }
-
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          model,
-          messages: apiMessages,
-          temperature: 1,
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('Error en la comunicación con la inteligencia artificial.');
-      }
-
-      const data = await response.json();
-      const reply = data.choices[0]?.message?.content || 'Revisaré esto de inmediato...';
+      // The system prompt, model and API key are applied server-side in /api/ai
+      const reply = await askAI(
+        [...messages, { role: 'user', content: userMessage }],
+        { mode: 'chat' }
+      ) || 'Revisaré esto de inmediato...';
 
       setMessages(prev => [...prev, { role: 'assistant', content: reply }]);
     } catch (error: any) {

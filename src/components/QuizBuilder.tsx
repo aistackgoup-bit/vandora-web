@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { askAI } from '../lib/ai';
 import { Sparkles, Save, Loader2, Play, Copy, ExternalLink, Plus, Trash2, Edit3 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -36,17 +37,6 @@ const QuizBuilder = ({ onEdit }: { onEdit?: (id: string) => void }) => {
     setGenerating(true);
 
     try {
-      const { data: settingsData } = await supabase
-        .from('app_settings')
-        .select('value')
-        .eq('key', 'openai_api_key')
-        .single();
-
-      const apiKey = settingsData?.value;
-      if (!apiKey) {
-        throw new Error('El administrador aún no ha configurado la clave de OpenAI en Ajustes.');
-      }
-
       const systemPrompt = `
         Eres un experto en marketing de moda y embudos de conversión (funnels).
         Tu tarea es generar un Quiz interactivo basado en la descripción del usuario.
@@ -79,28 +69,10 @@ const QuizBuilder = ({ onEdit }: { onEdit?: (id: string) => void }) => {
         IMPORTANTE: Devuelve SOLO el JSON en formato de string directo plano, SIN markdown de \`\`\`json ni otras explicaciones.
       `;
 
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: `Descripción del Quiz: ${prompt}` }
-          ],
-          temperature: 0.7,
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('Error en la API de OpenAI');
-      }
-
-      const result = await response.json();
-      const responseText = result.choices[0]?.message?.content;
+      const responseText = await askAI([
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: `Descripción del Quiz: ${prompt}` }
+      ], { temperature: 0.7 });
 
       const jsonString = responseText?.replace(/```json/g, '').replace(/```/g, '').trim();
       if (!jsonString) throw new Error("No se pudo generar el JSON");

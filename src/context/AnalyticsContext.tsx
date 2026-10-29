@@ -31,7 +31,7 @@ export const AnalyticsProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   useEffect(() => {
     const initAnalytics = async () => {
       try {
-        const { data } = await supabase.from('app_settings').select('*');
+        const { data } = await supabase.from('app_settings').select('key, value').in('key', ['ga4_id', 'meta_pixel_id', 'klaviyo_public_key']);
         if (data) {
           const ga4Id = data.find(s => s.key === 'ga4_id')?.value;
           const pixelId = data.find(s => s.key === 'meta_pixel_id')?.value;

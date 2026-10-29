@@ -1,46 +1,44 @@
-import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { supabase } from "./supabase";
 
-const accountId = import.meta.env.VITE_CLOUDFLARE_ACCOUNT_ID;
-const accessKeyId = import.meta.env.VITE_CLOUDFLARE_ACCESS_KEY_ID;
-const secretAccessKey = import.meta.env.VITE_CLOUDFLARE_SECRET_ACCESS_KEY;
-const bucketName = import.meta.env.VITE_CLOUDFLARE_BUCKET_NAME;
-const publicUrl = import.meta.env.VITE_CLOUDFLARE_PUBLIC_URL;
+// R2 credentials never reach the browser: /api/storage checks that the user is staff,
+// then hands back a short-lived presigned URL that the file is PUT to directly.
+const callStorageApi = async (payload: Record<string, unknown>) => {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error("Debes iniciar sesión para gestionar archivos");
 
-const s3Client = new S3Client({
-  region: "auto",
-  endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
-  credentials: {
-    accessKeyId: accessKeyId || "",
-    secretAccessKey: secretAccessKey || "",
-  },
-});
+  const res = await fetch("/api/storage", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Storage request failed (${res.status})`);
+  return data;
+};
 
 export const r2Storage = {
   uploadFile: async (file: File, path: string = "", customName?: string) => {
     try {
-      if (!accountId || !accessKeyId || !secretAccessKey || !bucketName) {
-        throw new Error("Missing Cloudflare R2 credentials");
-      }
-
-      const fileExt = file.name.split('.').pop();
-      const fileName = customName 
-        ? `${customName}.${fileExt}`
-        : `${Math.random().toString(36).substring(2)}.${fileExt}`;
-      const fullPath = path ? `${path}/${fileName}` : fileName;
-
-      const buffer = await file.arrayBuffer();
-      
-      const command = new PutObjectCommand({
-        Bucket: bucketName,
-        Key: fullPath,
-        Body: new Uint8Array(buffer),
-        ContentType: file.type,
+      const { uploadUrl, url, path: key } = await callStorageApi({
+        action: "upload",
+        fileName: file.name,
+        contentType: file.type,
+        folder: path,
+        customName,
       });
 
-      await s3Client.send(command);
+      const put = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      if (!put.ok) throw new Error(`Upload failed (${put.status})`);
 
-      const url = `${publicUrl}/${fullPath}`;
-      return { url, path: fullPath, error: null };
+      return { url: url as string, path: key as string, error: null };
     } catch (error: any) {
       console.error("Error uploading to R2:", error);
       return { url: null, path: null, error };
@@ -49,22 +47,7 @@ export const r2Storage = {
 
   deleteFile: async (path: string) => {
     try {
-      if (!accountId || !bucketName) {
-        throw new Error("Missing Cloudflare R2 credentials");
-      }
-
-      // Extract path from full URL if provided
-      let key = path;
-      if (path.startsWith(publicUrl || "")) {
-        key = path.replace(`${publicUrl}/`, "");
-      }
-
-      const command = new DeleteObjectCommand({
-        Bucket: bucketName,
-        Key: key,
-      });
-
-      await s3Client.send(command);
+      await callStorageApi({ action: "delete", path });
       return { error: null };
     } catch (error: any) {
       console.error("Error deleting from R2:", error);

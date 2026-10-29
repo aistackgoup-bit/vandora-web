@@ -1,7 +1,6 @@
 import React from 'react';
 import Navbar from './Navbar';
 import Footer from './Footer';
-import ChatWidget from './ChatWidget';
 import CookieConsent from './CookieConsent';
 import Breadcrumbs from './Breadcrumbs';
 import { useCart } from '../context/CartContext';
@@ -9,6 +8,10 @@ import { X, Minus, Plus, Trash2, Truck } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { formatPrice } from '../lib/utils';
 import { Link, useLocation } from 'react-router-dom';
+
+// Loaded after the page: the chat pulls in a markdown renderer and neither is needed for first paint
+const ChatWidget = React.lazy(() => import('./ChatWidget'));
+const PopupDisplay = React.lazy(() => import('./PopupDisplay'));
 
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { pathname } = useLocation();
@@ -26,7 +29,12 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         {children}
       </main>
       {!isCheckout && <Footer />}
-      {!isCheckout && <ChatWidget />}
+      {!isCheckout && (
+        <React.Suspense fallback={null}>
+          <ChatWidget />
+          <PopupDisplay />
+        </React.Suspense>
+      )}
       <CookieConsent />
 
       {/* Cart Sidebar */}

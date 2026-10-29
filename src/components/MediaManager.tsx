@@ -3,6 +3,7 @@ import { useDropzone } from 'react-dropzone';
 import { Upload, X, Loader2, Image as ImageIcon, Film, Plus, Sparkles } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { r2Storage } from '../lib/storage';
+import { askAI } from '../lib/ai';
 
 interface MediaItem {
   url: string;
@@ -157,37 +158,8 @@ const MediaManager: React.FC<MediaManagerProps> = ({ images, videos, colors, onI
 
     setImprovingAltIndex(index);
     try {
-      // Fetch settings for AI
-      const { data: settingsData } = await supabase.from('app_settings').select('*');
-      const settings: any = {};
-      settingsData?.forEach(item => { settings[item.key] = item.value; });
-
-      const apiKey = settings.openai_api_key;
-      if (!apiKey) throw new Error('Configura la API Key en Ajustes primero.');
-
-      const provider = settings.ai_provider || 'openai';
-      const model = settings.ai_model || 'gpt-4o-mini';
       const prompt = `Genera un texto alternativo (ALT text) breve, descriptivo y optimizado para SEO para una imagen de un producto llamado "${productName}". El texto debe describir visualmente la prenda para Google Imágenes y accesibilidad. Max 120 caracteres. Solo devuelve el texto, nada más.`;
-
-      let apiUrl = provider === 'openrouter' ? 'https://openrouter.ai/api/v1/chat/completions' : 'https://api.openai.com/v1/chat/completions';
-      
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-          ...(provider === 'openrouter' && { 'HTTP-Referer': window.location.origin, 'X-Title': 'Vandora Admin' })
-        },
-        body: JSON.stringify({
-          model,
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.7,
-        })
-      });
-
-      if (!response.ok) throw new Error('Error en la comunicación con la IA.');
-      const result = await response.json();
-      const suggestedAlt = result.choices[0]?.message?.content?.trim();
+      const suggestedAlt = await askAI([{ role: 'user', content: prompt }], { temperature: 0.7 });
 
       if (suggestedAlt) {
         updateImageAlt(index, suggestedAlt.replace(/"/g, ''));
