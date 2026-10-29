@@ -20,6 +20,7 @@ import { useSalesChannels } from '../lib/salesChannels';
 import CustomersPanel from '../components/admin/CustomersPanel';
 import InventoryPanel from '../components/admin/InventoryPanel';
 import AiStudioPanel from '../components/admin/AiStudioPanel';
+import SalesForecastPanel from '../components/admin/SalesForecastPanel';
 import VariantStockEditor, { StockMatrix, matrixFromVariants, saveVariantStock } from '../components/admin/VariantStockEditor';
 import { Variant, availableFor, useProductVariants } from '../lib/inventory';
 import { logger } from '../lib/logger';
@@ -36,6 +37,7 @@ const AdminPage = () => {
   const canManageUsers = ['superadmin', 'admin'].includes(role);
 
   const [activeTab, setActiveTab] = useState(() => {
+    if (canManageOrders) return 'dashboard';
     if (canManageProducts) return 'products';
     if (canManageOrders) return 'orders';
     if (canManageUsers) return 'users';
@@ -145,7 +147,8 @@ const AdminPage = () => {
   }, [isModalOpen, isUserModalOpen, isOrderModalOpen, isCategoryModalOpen, isManualOrderModalOpen]);
 
   useEffect(() => {
-    if (activeTab === 'dashboard' && profile) {
+    // Sales staff land on the sales dashboard; everyone else on their first tool
+    if (activeTab === 'dashboard' && profile && !canManageOrders) {
       if (canManageProducts) setActiveTab('products');
       else if (canManageOrders) setActiveTab('orders');
       else if (canManageUsers) setActiveTab('users');
@@ -157,7 +160,12 @@ const AdminPage = () => {
       fetchProducts();
       fetchCategories();
     }
-    else if (activeTab === 'orders') fetchOrders();
+    else if (activeTab === 'orders') {
+      fetchOrders();
+      // The manual order form picks from the product list
+      if (!products.length) fetchProducts();
+    }
+    else if (activeTab === 'studio' && !products.length) fetchProducts();
     else if (activeTab === 'users') fetchUsers();
     else if (activeTab === 'global-logs') fetchGlobalLogs();
     
@@ -882,7 +890,7 @@ const AdminPage = () => {
             onClick={() => { setActiveTab('dashboard'); setIsSidebarOpen(false); }}
             className={`w-full flex items-center px-4 py-3 text-sm rounded-lg transition-colors ${activeTab === 'dashboard' ? 'bg-emerald-50 text-vandora-emerald font-medium' : 'text-gray-600 hover:bg-gray-50'}`}
           >
-            <LayoutIcon className="h-5 w-5 mr-3" /> Dashboard
+            <LayoutIcon className="h-5 w-5 mr-3" /> {canManageOrders ? 'Ventas y previsión' : 'Dashboard'}
           </button>
 
           {canManageProducts && (
@@ -1011,8 +1019,11 @@ const AdminPage = () => {
       <main className="flex-1 p-4 md:p-8 overflow-y-auto">
         <header className="mb-8">
           <h1 className="text-2xl font-serif text-gray-900">
-            {activeTab === 'dashboard' ? 'Dashboard' :
-              activeTab === 'products' ? 'Inventario' :
+            {activeTab === 'dashboard' ? (canManageOrders ? 'Ventas y previsión' : 'Dashboard') :
+              activeTab === 'products' ? 'Productos' :
+                activeTab === 'inventory' ? 'Inventario' :
+                activeTab === 'customers' ? 'Clientes' :
+                activeTab === 'studio' ? 'Estudio de fotos IA' :
                 activeTab === 'orders' ? 'Pedidos' :
                   activeTab === 'users' ? 'Gestión de Usuarios' :
                     activeTab === 'media' ? 'Multimedia' :
@@ -1031,7 +1042,9 @@ const AdminPage = () => {
         {activeTab === 'funnels' && <FunnelEditor />}
         {activeTab === 'affiliates' && <AffiliateManagement />}
 
-        {activeTab === 'dashboard' && (
+        {activeTab === 'dashboard' && canManageOrders && <SalesForecastPanel />}
+
+        {activeTab === 'dashboard' && !canManageOrders && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
               <p className="text-sm text-gray-500 uppercase font-bold mb-1">Total Pedidos</p>
